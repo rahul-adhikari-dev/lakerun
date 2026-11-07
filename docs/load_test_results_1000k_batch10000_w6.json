@@ -1,0 +1,62 @@
+{
+  "rounds": 10,
+  "batch_size": 10000,
+  "workers": 6,
+  "pg_write_s": 15.7,
+  "slot_lag_after_writes": "273 MB",
+  "cdc_total_s": 19.2,
+  "cdc_events_per_s": 52083,
+  "ingest_s": 58.3,
+  "ingest_commits": 97,
+  "ingest_events_per_s": 17153,
+  "ingest_peak_rss_mb": null,
+  "transform_s": {
+    "silver.users": 0.56,
+    "silver.orders": 1.78,
+    "silver.order_items": 1.05,
+    "gold.daily_revenue": 0.17,
+    "gold.customer_summary": 0.42,
+    "gold.product_sales": 0.19,
+    "gold.order_status_funnel": 0.05
+  },
+  "silver_noop_rerun_s": 0.27,
+  "tables": {
+    "bronze.users": {
+      "rows": 220011,
+      "snapshots": 186,
+      "files": 186
+    },
+    "bronze.orders": {
+      "rows": 1556868,
+      "snapshots": 1265,
+      "files": 1265
+    },
+    "bronze.order_items": {
+      "rows": 896041,
+      "snapshots": 699,
+      "files": 699
+    },
+    "silver.users": {
+      "rows": 220011,
+      "snapshots": 3,
+      "files": 3
+    },
+    "silver.orders": {
+      "rows": 660032,
+      "snapshots": 3,
+      "files": 5
+    },
+    "silver.order_items": {
+      "rows": 864083,
+      "snapshots": 3,
+      "files": 4
+    }
+  },
+  "queries_s": {
+    "gold daily_revenue (full)": 0.035,
+    "gold top 10 customers": 0.06,
+    "silver revenue by status": 0.022,
+    "bronze history of 1 order": 0.073
+  },
+  "checksums_match": true
+}

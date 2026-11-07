@@ -1,0 +1,17 @@
+{
+  "note": "Transcribed from the run log: this run crashed at the query-latency stage (missing pytz) before writing JSON. The 200k run verified correctness over the cumulative data.",
+  "rounds": 10,
+  "batch_size": 1000,
+  "pg_write_s": 13.9,
+  "cdc_total_s": 20.4,
+  "cdc_events_per_s": 49020,
+  "max_slot_lag_mb": 176,
+  "ingest_s": 243.1,
+  "ingest_commits": 979,
+  "ingest_events_per_s": 4114,
+  "ingest_peak_rss_mb": 178,
+  "transform": {"silver.users": 2.16, "silver.orders": 1.48, "silver.order_items": 1.14,
+                "gold.daily_revenue": 0.15, "gold.customer_summary": 0.25, "gold.product_sales": 0.17,
+                "gold.order_status_funnel": 0.05, "silver.orders_rerun_noop": 0.25},
+  "bronze_files_after": {"users": 160, "orders": 734, "order_items": 606}
+}

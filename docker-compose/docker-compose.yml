@@ -1,0 +1,147 @@
+# LakeSync, first stage: Postgres -> Debezium (Kafka Connect) -> Kafka
+# Start:  docker compose up -d
+# Stop:   docker compose down        (add -v to also delete stored data)
+
+services:
+
+  # ---------- Source database ----------
+  postgres:
+    image: postgres:16
+    container_name: lakesync-postgres
+    # wal_level=logical makes Postgres log row-level changes so Debezium can decode them
+    command: >
+      postgres
+      -c wal_level=logical
+      -c max_wal_senders=4
+      -c max_replication_slots=4
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: shop
+    ports:
+      - "5432:5432"          # host:container, lets you connect from your laptop
+    volumes:
+      - pg_data:/var/lib/postgresql/data                      # named volume, survives restarts
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql       # runs once on first start
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d shop"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---------- Kafka in KRaft mode (no ZooKeeper) ----------
+  kafka:
+    image: apache/kafka:latest
+    container_name: lakesync-kafka
+    ports:
+      - "29092:29092"        # for clients running on your laptop
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller        # this one node does both jobs
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,PLAINTEXT_HOST://:29092
+      # Two addresses: one for containers (kafka:9092), one for your laptop (localhost:29092)
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # Single broker, so every replication factor must be 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Auto-created topics (Debezium's per-table topics) get 6 partitions, so up to 6
+      # ingestor processes in one consumer group can read in parallel.
+      KAFKA_NUM_PARTITIONS: 6
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  # ---------- Debezium running inside Kafka Connect ----------
+  connect:
+    image: quay.io/debezium/connect:2.7
+    container_name: lakesync-connect
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8083:8083"          # Kafka Connect REST API, used to register connectors
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092      # service name works as hostname inside the compose network
+      GROUP_ID: lakesync-connect
+      CONFIG_STORAGE_TOPIC: connect_configs
+      OFFSET_STORAGE_TOPIC: connect_offsets
+      STATUS_STORAGE_TOPIC: connect_statuses
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+
+  # ---------- Web UI to browse topics and messages (optional) ----------
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: lakesync-kafka-ui
+    depends_on:
+      - kafka
+      - connect
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: debezium
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://connect:8083
+  minio:
+    image:  cgr.dev/chainguard/minio:latest
+    container_name: minio
+    restart: always
+    ports:
+      - "9000:9000" # API Port
+      - "9001:9001" # Web Console Port
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: supersecurepassword123 # Must be at least 8 characters
+    volumes:
+      -  minio_data:/data
+    command: server /data --console-address ":9001"
+
+  # ---------- One-shot job: create the 'lake' bucket in MinIO ----------
+  # Reuses the MinIO image (it ships the `mc` client). MC_HOST_local = alias "local" with creds.
+  minio-init:
+    image: cgr.dev/chainguard/minio:latest
+    container_name: lakesync-minio-init
+    depends_on:
+      - minio
+    restart: on-failure            # retries until MinIO is accepting connections
+    environment:
+      MC_HOST_local: http://admin:supersecurepassword123@minio:9000
+    entrypoint: ["/usr/bin/mc", "mb", "--ignore-existing", "local/lake"]
+
+  iceberg-rest:
+    image: apache/iceberg-rest-fixture
+    container_name: lakesync-iceberg-rest
+    user: root                     # image runs as non-root; needs root to write sqlite catalog into the /data volume
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    ports:
+      - "8181:8181"
+    environment:
+      AWS_ACCESS_KEY_ID: admin
+      AWS_SECRET_ACCESS_KEY: supersecurepassword123
+      AWS_REGION: us-east-1
+      CATALOG_WAREHOUSE: s3://lake/warehouse/
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3_ENDPOINT: http://minio:9000
+      CATALOG_S3_PATH__STYLE__ACCESS: "true"
+      CATALOG_URI: "jdbc:sqlite:file:/data/catalog.db"
+    volumes:
+      - iceberg_catalog:/data
+
+volumes:
+  pg_data:
+  minio_data:
+  iceberg_catalog:

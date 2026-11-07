@@ -1,0 +1,24 @@
+{
+  "name": "shop-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "plugin.name": "pgoutput",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "cdc",
+    "database.password": "cdc_pass",
+    "database.dbname": "shop",
+    "topic.prefix": "shop",
+    "table.include.list": "public.users,public.orders,public.order_items",
+    "slot.name": "lakesync_slot",
+    "publication.name": "lakesync_pub",
+    "publication.autocreate.mode": "disabled",
+    "snapshot.mode": "initial",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter.schemas.enable": "false",
+    "decimal.handling.mode": "string",
+    "time.precision.mode": "adaptive_time_microseconds"
+  }
+}
